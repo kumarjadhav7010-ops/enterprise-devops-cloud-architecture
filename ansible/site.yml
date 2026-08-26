@@ -1,0 +1,55 @@
+---
+- name: Enterprise Linux Server Provisioning & Kubernetes Node Hardening
+  hosts: all
+  become: yes
+  vars:
+    containerd_version: "1.7.11"
+    sysctl_params:
+      net.core.somaxconn: 65535
+      net.ipv4.ip_forward: 1
+      vm.swappiness: 10
+      fs.file-max: 2097152
+
+  tasks:
+    - name: Update APT package cache and install essential dependencies
+      apt:
+        name:
+          - curl
+          - apt-transport-https
+          - ca-certificates
+          - gnupg
+          - lsb-release
+          - htop
+          - ufw
+          - fail2ban
+        state: present
+        update_cache: yes
+
+    - name: Configure sysctl kernel performance parameters
+      sysctl:
+        name: "{{ item.key }}"
+        value: "{{ item.value }}"
+        state: present
+        reload: yes
+      loop: "{{ sysctl_params | dict2items }}"
+
+    - name: Configure UFW firewall rules
+      ufw:
+        rule: allow
+        port: "{{ item }}"
+        proto: tcp
+      loop:
+        - "22"
+        - "80"
+        - "443"
+        - "6443"
+
+    - name: Enable UFW firewall
+      ufw:
+        state: enabled
+
+    - name: Configure fail2ban for SSH brute-force protection
+      systemd:
+        name: fail2ban
+        state: started
+        enabled: yes
