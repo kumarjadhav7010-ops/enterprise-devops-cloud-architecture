@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: production-apps
+  labels:
+    name: production-apps
+    security-zone: restricted
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ai-ml-workloads
+  labels:
+    name: ai-ml-workloads
+    gpu-enabled: "true"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: devops-platform-admin
+rules:
+- apiGroups: ["", "apps", "batch", "networking.k8s.io", "autoscaling"]
+  resources: ["*"]
+  verbs: ["*"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: devops-platform-admin-binding
+subjects:
+- kind: Group
+  name: system:masters
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: devops-platform-admin
+  apiGroup: rbac.authorization.k8s.io
