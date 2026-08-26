@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-inference-service
+  namespace: ai-ml-workloads
+  labels:
+    app: ai-inference
+    workload-type: gpu-accelerated
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ai-inference
+  template:
+    metadata:
+      labels:
+        app: ai-inference
+    spec:
+      tolerations:
+      - key: "nvidia.com/gpu"
+        operator: "Exists"
+        effect: "NoSchedule"
+      containers:
+      - name: llm-inference-engine
+        image: nvcr.io/nvidia/tritonserver:23.10-py3
+        command: ["tritonserver", "--model-repository=/models"]
+        resources:
+          limits:
+            nvidia.com/gpu: "1"
+            memory: "32Gi"
+            cpu: "8"
+          requests:
+            nvidia.com/gpu: "1"
+            memory: "16Gi"
+            cpu: "4"
+        ports:
+        - containerPort: 8000
+          name: http-inference
+        - containerPort: 8001
+          name: grpc-inference
