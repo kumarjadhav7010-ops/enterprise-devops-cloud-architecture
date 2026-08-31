@@ -1,0 +1,47 @@
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: default-strict-mtls
+  namespace: production-apps
+spec:
+  mtls:
+    mode: STRICT
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: devops-canary-routing
+  namespace: production-apps
+spec:
+  hosts:
+  - "api.devopsmastery.io"
+  gateways:
+  - istio-system/ingress-gateway
+  http:
+  - route:
+    - destination:
+        host: devops-python-service
+        subset: v1
+      weight: 90
+    - destination:
+        host: devops-python-service
+        subset: v2-canary
+      weight: 10
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: DestinationRule
+metadata:
+  name: devops-subsets
+  namespace: production-apps
+spec:
+  host: devops-python-service
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+  subsets:
+  - name: v1
+    labels:
+      version: "v1"
+  - name: v2-canary
+    labels:
+      version: "v2-canary"
