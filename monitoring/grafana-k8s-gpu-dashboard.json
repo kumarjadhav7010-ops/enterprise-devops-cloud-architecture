@@ -1,0 +1,48 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "title": "Enterprise K8s Node & GPU Metrics",
+  "tags": ["kubernetes", "prometheus", "nvidia-gpu", "devops"],
+  "timezone": "browser",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Cluster CPU Utilization (%)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "100 - (avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
+          "legendFormat": "{{instance}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "NVIDIA GPU Duty Cycle (%)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "avg(container_gpu_utilization) by (pod)",
+          "legendFormat": "{{pod}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Pod Memory Usage (Bytes)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum(container_memory_working_set_bytes{container!=\"\"}) by (pod)",
+          "legendFormat": "{{pod}}"
+        }
+      ]
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 38,
+  "style": "dark"
+}
