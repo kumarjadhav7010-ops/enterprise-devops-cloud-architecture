@@ -1,0 +1,26 @@
+---
+# CIS Benchmark Linux Security Hardening Tasks
+
+- name: Enforce SSH Security Hardening Parameters
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+    state: present
+  loop:
+    - { regexp: '^#?PermitRootLogin', line: 'PermitRootLogin no' }
+    - { regexp: '^#?PasswordAuthentication', line: 'PasswordAuthentication no' }
+    - { regexp: '^#?X11Forwarding', line: 'X11Forwarding no' }
+    - { regexp: '^#?MaxAuthTries', line: 'MaxAuthTries 4' }
+  notify: Restart sshd
+
+- name: Configure Auditd System Event Auditing
+  apt:
+    name: auditd
+    state: present
+
+- name: Enable and Start Auditd Service
+  systemd:
+    name: auditd
+    state: started
+    enabled: yes
