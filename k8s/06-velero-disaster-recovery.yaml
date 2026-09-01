@@ -1,0 +1,18 @@
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: daily-k8s-disaster-recovery-backup
+  namespace: velero
+spec:
+  schedule: "0 1 * * *"
+  template:
+    includedNamespaces:
+      - production-apps
+      - ai-ml-workloads
+    excludedResources:
+      - events
+    storageLocation: default
+    volumeSnapshotLocations:
+      - aws-ebs-us-east-1
+    ttl: 720h0m0s
+    snapshotVolumes: true
