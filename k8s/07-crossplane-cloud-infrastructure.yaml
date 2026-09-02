@@ -1,0 +1,27 @@
+apiVersion: s3.aws.upbound.io/v1beta1
+kind: Bucket
+metadata:
+  name: enterprise-crossplane-storage-bucket
+  namespace: production-apps
+spec:
+  forProvider:
+    region: us-east-1
+  providerConfigRef:
+    name: aws-provider-config
+---
+apiVersion: database.aws.upbound.io/v1beta1
+kind: RDSInstance
+metadata:
+  name: enterprise-crossplane-postgres-db
+  namespace: production-apps
+spec:
+  forProvider:
+    allocatedStorage: 50
+    dbInstanceClass: db.t4g.medium
+    engine: postgres
+    engineVersion: "15.4"
+    masterUsername: dbadmin
+    region: us-east-1
+    skipFinalSnapshot: true
+  providerConfigRef:
+    name: aws-provider-config
