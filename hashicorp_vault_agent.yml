@@ -1,0 +1,45 @@
+---
+# Ansible Tasks for HashiCorp Vault Agent Installation & Zero-Trust Secret Rotation
+
+- name: Create Vault Configuration Directory
+  file:
+    path: /etc/vault.d
+    state: directory
+    mode: '0750'
+    owner: root
+    group: root
+
+- name: Deploy Vault Agent Configuration File
+  copy:
+    dest: /etc/vault.d/vault-agent.hcl
+    mode: '0640'
+    content: |
+      exit_after_auth = false
+      pid_file = "/run/vault/vault-agent-pid"
+
+      auto_auth {
+        method "aws" {
+          mount_path = "auth/aws"
+          config = {
+            type = "iam"
+            role = "enterprise-vault-workload-role"
+          }
+        }
+
+        sink "file" {
+          config = {
+            path = "/etc/vault.d/vault-token"
+          }
+        }
+      }
+
+      template {
+        contents = "{{ with secret \"database/creds/readonly\" }}postgres://{{ .Data.username }}:{{ .Data.password }}@db.internal:5432/enterprisedb{{ end }}"
+        destination = "/etc/vault.d/db-connection.env"
+      }
+
+- name: Enable and Start Vault Agent Systemd Service
+  systemd:
+    name: vault-agent
+    state: started
+    enabled: yes
