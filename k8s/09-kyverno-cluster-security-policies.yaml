@@ -1,0 +1,61 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: enterprise-security-baseline
+  annotations:
+    policies.kyverno.io/title: "Enterprise Kubernetes Security Baseline"
+    policies.kyverno.io/category: "Pod Security Standards"
+    policies.kyverno.io/severity: "high"
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: disallow-root-execution
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - production-apps
+      validate:
+        message: "Containers must run as non-root user (runAsNonRoot: true)."
+        pattern:
+          spec:
+            securityContext:
+              runAsNonRoot: true
+            containers:
+              - =(securityContext):
+                  =(runAsNonRoot): true
+
+    - name: require-read-only-root-filesystem
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - production-apps
+      validate:
+        message: "Containers must have readOnlyRootFilesystem set to true."
+        pattern:
+          spec:
+            containers:
+              - securityContext:
+                  readOnlyRootFilesystem: true
+
+    - name: disallow-privilege-escalation
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - production-apps
+      validate:
+        message: "Privilege escalation is disallowed in enterprise clusters."
+        pattern:
+          spec:
+            containers:
+              - securityContext:
+                  allowPrivilegeEscalation: false
