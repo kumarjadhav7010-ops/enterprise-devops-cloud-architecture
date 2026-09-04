@@ -1,0 +1,58 @@
+---
+# Ansible Tasks for Fluent Bit Kubernetes & Node Log Forwarding to AWS OpenSearch
+
+- name: Create Fluent Bit Configuration Directory
+  file:
+    path: /etc/fluent-bit
+    state: directory
+    mode: '0755'
+    owner: root
+    group: root
+
+- name: Deploy Fluent Bit Service Configuration
+  copy:
+    dest: /etc/fluent-bit/fluent-bit.conf
+    mode: '0644'
+    content: |
+      [SERVICE]
+          Flush         1
+          Log_Level     info
+          Daemon        off
+          Parsers_File  parsers.conf
+
+      [INPUT]
+          Name              tail
+          Tag               kube.*
+          Path              /var/log/containers/*.log
+          Parser            docker
+          DB                /var/log/fluent-bit.db
+          Mem_Buf_Limit     50MB
+          Skip_Long_Lines   On
+          Refresh_Interval  10
+
+      [FILTER]
+          Name                kubernetes
+          Match               kube.*
+          Kube_URL            https://kubernetes.default.svc:443
+          Kube_CA_File        /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          Kube_Token_File     /var/run/secrets/kubernetes.io/serviceaccount/token
+          Merge_Log           On
+          Keep_Log            Off
+
+      [OUTPUT]
+          Name            opensearch
+          Match           kube.*
+          Host            opensearch.internal.cloud
+          Port            9200
+          Index           k8s-production-logs
+          Type            _doc
+          HTTP_User       fluentbit
+          HTTP_Passwd     ${OPENSEARCH_INGEST_KEY}
+          tls             On
+          tls.verify      On
+
+- name: Ensure Fluent Bit Service is Running and Enabled
+  systemd:
+    name: fluent-bit
+    state: started
+    enabled: yes
