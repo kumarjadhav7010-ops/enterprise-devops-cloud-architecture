@@ -1,0 +1,82 @@
+apiVersion: "cilium.io/v2"
+kind: CiliumNetworkPolicy
+metadata:
+  name: "enterprise-api-ebpf-security"
+  namespace: production-apps
+spec:
+  description: "eBPF-driven zero-trust security policy for production API microservices"
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/component: backend-api
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            app.kubernetes.io/name: ingress-controller
+      toPorts:
+        - ports:
+            - port: "8000"
+              protocol: TCP
+          rules:
+            http:
+              - method: "GET"
+                path: "/health/"
+              - method: "GET"
+                path: "/api/v1/.*"
+              - method: "POST"
+                path: "/api/v1/.*"
+  egress:
+    # 1. Allow DNS queries to kube-dns via eBPF
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: ANY
+          rules:
+            dns:
+              - matchPattern: "*"
+    # 2. Allow egress to PostgreSQL Database in internal subnet
+    - toCIDR:
+        - "10.0.32.0/20"
+      toPorts:
+        - ports:
+            - port: "5432"
+              protocol: TCP
+    # 3. Allow egress to Redis Cluster
+    - toCIDR:
+        - "10.0.48.0/20"
+      toPorts:
+        - ports:
+            - port: "6379"
+              protocol: TCP
+    # 4. Allow HTTPS egress only to approved external APIs (Stripe, Datadog)
+    - toFQDNs:
+        - matchName: "api.stripe.com"
+        - matchName: "api.datadoghq.com"
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+---
+apiVersion: "cilium.io/v2"
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: "enterprise-default-deny-all"
+spec:
+  description: "Default deny all ingress and egress across production namespaces unless explicitly allowed"
+  endpointSelector:
+    matchLabels:
+      environment: production
+  ingress:
+    - {}
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: ANY
