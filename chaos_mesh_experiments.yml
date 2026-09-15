@@ -1,0 +1,94 @@
+---
+# Ansible Tasks for Chaos Mesh Operator & Automated Resilience Experiments
+
+- name: Ensure Chaos Testing Namespace Exists
+  kubernetes.core.k8s:
+    name: chaos-testing
+    api_version: v1
+    kind: Namespace
+    state: present
+
+- name: Deploy Chaos Mesh Helm Chart
+  kubernetes.core.helm:
+    name: chaos-mesh
+    chart_ref: chaos-mesh/chaos-mesh
+    chart_version: "2.6.2"
+    release_namespace: chaos-testing
+    create_namespace: true
+    values:
+      dashboard:
+        create: true
+      chaosDaemon:
+        runtime: containerd
+        socketPath: /run/containerd/containerd.sock
+
+- name: Deploy Network Latency Injection Experiment
+  kubernetes.core.k8s:
+    state: present
+    namespace: chaos-testing
+    definition:
+      apiVersion: chaos-mesh.org/v1alpha1
+      kind: NetworkChaos
+      metadata:
+        name: api-network-latency-injection
+      spec:
+        action: delay
+        mode: fixed
+        value: "2"
+        selector:
+          namespaces:
+            - production-apps
+          labelSelectors:
+            app.kubernetes.io/name: enterprise-api
+        delay:
+          latency: "150ms"
+          jitter: "20ms"
+          correlation: "50"
+        duration: "5m"
+        scheduler:
+          cron: "0 2 * * 2" # Weekly Tuesday 02:00 UTC
+
+- name: Deploy Pod Kill Chaos Experiment
+  kubernetes.core.k8s:
+    state: present
+    namespace: chaos-testing
+    definition:
+      apiVersion: chaos-mesh.org/v1alpha1
+      kind: PodChaos
+      metadata:
+        name: random-worker-pod-kill
+      spec:
+        action: pod-kill
+        mode: one
+        selector:
+          namespaces:
+            - production-apps
+          labelSelectors:
+            app.kubernetes.io/component: background-worker
+        duration: "1m"
+        scheduler:
+          cron: "0 3 * * 2"
+
+- name: Deploy CPU Stress Chaos Experiment
+  kubernetes.core.k8s:
+    state: present
+    namespace: chaos-testing
+    definition:
+      apiVersion: chaos-mesh.org/v1alpha1
+      kind: StressChaos
+      metadata:
+        name: api-cpu-stress-test
+      spec:
+        mode: one
+        selector:
+          namespaces:
+            - production-apps
+          labelSelectors:
+            app.kubernetes.io/name: enterprise-api
+        stressors:
+          cpu:
+            workers: 2
+            load: 85
+        duration: "3m"
+        scheduler:
+          cron: "0 4 * * 2"
