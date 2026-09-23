@@ -1,0 +1,100 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: falco-custom-rules
+  namespace: falco-system
+data:
+  custom-rules.yaml: |
+    - rule: Terminal Shell Spawned in Production Container
+      desc: Detect terminal execution inside a production container namespace
+      condition: >
+        spawned_process and container
+        and container.namespace = "production-apps"
+        and proc.name in (bash, sh, zsh, ksh, csh)
+        and not proc.pname in (entrypoint.sh, docker-entrypoint.sh)
+      output: >
+        CRITICAL: Shell spawned in container
+        (user=%user.name user_loginuid=%user.loginuid pod=%k8s.pod.name
+        container=%container.name image=%container.image.repository
+        command=%proc.cmdline terminal=%proc.tty)
+      priority: CRITICAL
+      tags: [container, mitre_execution, pci_dss]
+
+    - rule: Unauthorized Sensitive Directory Read
+      desc: Detect unauthorized access to sensitive Linux credential directories
+      condition: >
+        open_read and container
+        and (fd.name startswith "/etc/shadow" or fd.name startswith "/etc/security" or fd.name startswith "/root/.ssh")
+        and not proc.name in (sshd, login, useradd)
+      output: >
+        WARNING: Sensitive file read by container process
+        (user=%user.name pod=%k8s.pod.name file=%fd.name command=%proc.cmdline)
+      priority: WARNING
+      tags: [filesystem, mitre_credential_access]
+
+    - rule: Outbound Network Connection to Non-Whitelisted External CIDR
+      desc: Detect containers attempting outbound socket connections to unknown external IPs
+      condition: >
+        outbound and container
+        and container.namespace = "production-apps"
+        and not (fd.cip in (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16))
+        and not fd.cport in (53, 443)
+      output: >
+        ALERT: Unexpected outbound connection from pod
+        (pod=%k8s.pod.name proto=%fd.l4proto sip=%fd.sip dip=%fd.cip dport=%fd.cport)
+      priority: ERROR
+      tags: [network, mitre_command_and_control]
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: falco-ebpf
+  namespace: falco-system
+  labels:
+    app.kubernetes.io/name: falco
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: falco
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: falco
+    spec:
+      serviceAccountName: falco-sa
+      hostNetwork: true
+      hostPID: true
+      containers:
+        - name: falco
+          image: falcosecurity/falco-no-driver:0.38.1
+          securityContext:
+            privileged: true
+          env:
+            - name: FALCO_MODERN_EBPF
+              value: "true"
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 1024Mi
+          volumeMounts:
+            - name: falco-rules
+              mountPath: /etc/falco/rules.d
+            - name: host-proc
+              mountPath: /host/proc
+              readOnly: true
+            - name: host-sys
+              mountPath: /host/sys
+              readOnly: true
+      volumes:
+        - name: falco-rules
+          configMap:
+            name: falco-custom-rules
+        - name: host-proc
+          hostPath:
+            path: /proc
+        - name: host-sys
+          hostPath:
+            path: /sys

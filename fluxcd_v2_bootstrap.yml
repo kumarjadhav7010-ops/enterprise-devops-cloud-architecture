@@ -1,0 +1,69 @@
+---
+# Ansible Tasks for FluxCD v2 GitOps Controller & SOPS AWS KMS Secret Decryption
+
+- name: Create Flux System Namespace
+  kubernetes.core.k8s:
+    name: flux-system
+    api_version: v1
+    kind: Namespace
+    state: present
+
+- name: Install FluxCD v2 CLI Binary
+  get_url:
+    url: "https://github.com/fluxcd/flux2/releases/download/v2.3.0/flux_2.3.0_linux_amd64.tar.gz"
+    dest: "/tmp/flux_v2.tar.gz"
+    mode: '0755'
+  register: flux_download
+
+- name: Extract Flux Binary to System Path
+  unarchive:
+    src: "/tmp/flux_v2.tar.gz"
+    dest: "/usr/local/bin"
+    remote_src: yes
+    creates: "/usr/local/bin/flux"
+
+- name: Deploy Flux GitRepository Source CRD
+  kubernetes.core.k8s:
+    state: present
+    namespace: flux-system
+    definition:
+      apiVersion: source.toolkit.fluxcd.io/v1
+      kind: GitRepository
+      metadata:
+        name: enterprise-cloud-repo
+        namespace: flux-system
+      spec:
+        interval: 1m
+        url: "https://github.com/kumarjadhav7010-ops/enterprise-devops-cloud-architecture.git"
+        ref:
+          branch: main
+        timeout: 60s
+
+- name: Deploy Flux Kustomization with AWS KMS SOPS Decryption
+  kubernetes.core.k8s:
+    state: present
+    namespace: flux-system
+    definition:
+      apiVersion: kustomize.toolkit.fluxcd.io/v1
+      kind: Kustomization
+      metadata:
+        name: production-apps-reconciler
+        namespace: flux-system
+      spec:
+        interval: 5m
+        targetNamespace: production-apps
+        sourceRef:
+          kind: GitRepository
+          name: enterprise-cloud-repo
+        path: "./k8s"
+        prune: true
+        wait: true
+        timeout: 3m
+        decryption:
+          provider: sops
+          secretRef:
+            name: sops-aws-kms-creds
+        postBuild:
+          substitute:
+            CLUSTER_ENV: "production"
+            AWS_REGION: "ap-south-1"
