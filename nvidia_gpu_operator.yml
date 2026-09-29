@@ -1,0 +1,95 @@
+---
+# Ansible Tasks for NVIDIA GPU Operator, MIG Partitioning & DCGM Telemetry on Kubernetes
+
+- name: Create NVIDIA GPU Operator Namespace
+  kubernetes.core.k8s:
+    name: gpu-operator
+    api_version: v1
+    kind: Namespace
+    state: present
+
+- name: Add NVIDIA Helm Repository
+  kubernetes.core.helm_repository:
+    name: nvidia
+    repo_url: "https://helm.ngc.nvidia.com/nvidia"
+
+- name: Deploy Custom MIG Partitioning ConfigMap
+  kubernetes.core.k8s:
+    state: present
+    namespace: gpu-operator
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: enterprise-mig-parted-config
+      data:
+        config.yaml: |
+          version: v1
+          mig-configs:
+            all-disabled:
+              - devices: all
+                mig-enabled: false
+            enterprise-ai-mixed:
+              - device-filter: ["0x20B010DE", "0x20B210DE"] # NVIDIA A100-SXM4-40GB / A100-80GB
+                devices: [0, 1]
+                mig-enabled: true
+                mig-devices:
+                  "1g.10gb": 4
+                  "3g.20gb": 1
+              - device-filter: ["0x20B010DE", "0x20B210DE"]
+                devices: [2, 3]
+                mig-enabled: false
+
+- name: Install NVIDIA GPU Operator via Helm with DCGM Exporter & MIG Manager
+  kubernetes.core.helm:
+    name: gpu-operator
+    chart_ref: nvidia/gpu-operator
+    chart_version: "v24.3.0"
+    release_namespace: gpu-operator
+    create_namespace: true
+    wait: true
+    timeout: "10m0s"
+    values:
+      operator:
+        defaultRuntime: containerd
+      mig:
+        strategy: mixed
+      migManager:
+        enabled: true
+        config:
+          name: enterprise-mig-parted-config
+          default: "enterprise-ai-mixed"
+      driver:
+        enabled: true
+        rdma:
+          enabled: true
+      toolkit:
+        enabled: true
+      devicePlugin:
+        enabled: true
+        config:
+          name: time-slicing-config
+      dcgmExporter:
+        enabled: true
+        serviceMonitor:
+          enabled: true
+          interval: 15s
+          additionalLabels:
+            release: kube-prometheus-stack
+      gfd:
+        enabled: true
+      nfd:
+        enabled: true
+
+- name: Label GPU Worker Nodes for Mixed MIG Strategy
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Node
+      metadata:
+        name: "{{ item }}"
+        labels:
+          nvidia.com/mig.config: "enterprise-ai-mixed"
+          workload.enterprise.io/accelerator: "nvidia-a100"
+  loop: "{{ gpu_worker_nodes | default(['ip-10-0-10-101.ap-south-1.compute.internal', 'ip-10-0-10-102.ap-south-1.compute.internal']) }}"

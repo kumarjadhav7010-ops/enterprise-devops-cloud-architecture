@@ -1,0 +1,115 @@
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: keda-trigger-auth-kafka-scram
+  namespace: production-apps
+spec:
+  secretTargetRef:
+    - parameter: sasl
+      name: kafka-client-credentials
+      key: sasl_mechanism
+    - parameter: username
+      name: kafka-client-credentials
+      key: username
+    - parameter: password
+      name: kafka-client-credentials
+      key: password
+    - parameter: tls
+      name: kafka-client-credentials
+      key: tls_enabled
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: celery-ai-worker-autoscaler
+  namespace: production-apps
+  labels:
+    app.kubernetes.io/name: celery-ai-worker
+    app.kubernetes.io/part-of: enterprise-ai-platform
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: celery-ai-worker
+  pollingInterval: 15
+  cooldownPeriod: 180
+  minReplicaCount: 2
+  maxReplicaCount: 30
+  advanced:
+    restoreToOriginalReplicaCount: true
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleDown:
+          stabilizationWindowSeconds: 300
+          policies:
+            - type: Percent
+              value: 25
+              periodSeconds: 60
+        scaleUp:
+          stabilizationWindowSeconds: 0
+          policies:
+            - type: Percent
+              value: 100
+              periodSeconds: 15
+            - type: Pods
+              value: 4
+              periodSeconds: 15
+          selectPolicy: Max
+  triggers:
+    - type: kafka
+      metadata:
+        bootstrapServers: enterprise-kafka-cluster-kafka-bootstrap.kafka.svc:9093
+        consumerGroup: ai-inference-worker-group
+        topic: inference-requests-topic
+        lagThreshold: "50"
+        activationLagThreshold: "5"
+        offsetResetPolicy: latest
+      authenticationRef:
+        name: keda-trigger-auth-kafka-scram
+    - type: prometheus
+      metadata:
+        serverAddress: http://prometheus-k8s.monitoring.svc.cluster.local:9090
+        metricName: dcgm_gpu_utilization_ratio
+        threshold: "75"
+        query: |
+          avg(DCGM_FI_DEV_GPU_UTIL{namespace="production-apps", pod=~"celery-ai-worker-.*"})
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledJob
+metadata:
+  name: batch-embedding-indexer-job
+  namespace: production-apps
+spec:
+  jobTargetRef:
+    parallelism: 1
+    completions: 1
+    activeDeadlineSeconds: 1800
+    backoffLimit: 3
+    template:
+      spec:
+        restartPolicy: OnFailure
+        containers:
+          - name: embedding-indexer
+            image: 123456789012.dkr.ecr.ap-south-1.amazonaws.com/embedding-indexer:v1.8.0
+            resources:
+              requests:
+                cpu: "2"
+                memory: "8Gi"
+                nvidia.com/gpu: "1"
+              limits:
+                cpu: "4"
+                memory: "16Gi"
+                nvidia.com/gpu: "1"
+  pollingInterval: 30
+  successfulJobsHistoryLimit: 5
+  failedJobsHistoryLimit: 5
+  maxReplicaCount: 12
+  scalingStrategy:
+    strategy: accurate
+  triggers:
+    - type: redis-streams
+      metadata:
+        address: enterprise-redis-cluster.cache.amazonaws.com:6379
+        stream: document-embedding-stream
+        consumerGroup: embedding-indexer-cg
+        pendingEntriesCount: "25"
