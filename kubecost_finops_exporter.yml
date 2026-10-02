@@ -1,0 +1,77 @@
+---
+# Ansible Tasks for Kubecost / OpenCost Kubernetes FinOps & Cost Telemetry
+
+- name: Create Kubecost Namespace
+  kubernetes.core.k8s:
+    name: kubecost
+    api_version: v1
+    kind: Namespace
+    state: present
+
+- name: Add Kubecost Helm Repository
+  kubernetes.core.helm_repository:
+    name: cost-analyzer
+    repo_url: "https://kubecost.github.io/cost-analyzer/"
+
+- name: Deploy Kubecost Helm Chart with AWS Pricing & Prometheus Metrics
+  kubernetes.core.helm:
+    name: kubecost
+    chart_ref: cost-analyzer/cost-analyzer
+    chart_version: "2.3.2"
+    release_namespace: kubecost
+    create_namespace: true
+    values:
+      global:
+        prometheus:
+          enabled: false
+          fqdn: http://prometheus-k8s.monitoring.svc.cluster.local:9090
+      kubecostModel:
+        currencyCode: "USD"
+        pricingSource: "aws"
+        awsSpotDataRegion: "ap-south-1"
+        awsPricingLookupRegion: "ap-south-1"
+        warmCache: true
+        etl: true
+        etlDailyStoreDurationDays: 90
+      serviceMonitor:
+        enabled: true
+        additionalLabels:
+          release: kube-prometheus-stack
+      networkCosts:
+        enabled: true
+      persistentVolume:
+        size: 50Gi
+        storageClass: gp3
+
+- name: Deploy FinOps Alerting Rules for Idle Resources and Budget Overruns
+  kubernetes.core.k8s:
+    state: present
+    namespace: kubecost
+    definition:
+      apiVersion: monitoring.coreos.com/v1
+      kind: PrometheusRule
+      metadata:
+        name: finops-cost-anomaly-alerts
+        labels:
+          role: alert-rules
+          release: kube-prometheus-stack
+      spec:
+        groups:
+          - name: FinOpsCostAlerts
+            rules:
+              - alert: HighNamespaceCostAnomaly
+                expr: sum(kubecost_cluster_management_cost_hourly) by (namespace) > 25
+                for: 2h
+                labels:
+                  severity: warning
+                  team: platform-finops
+                annotations:
+                  summary: "Hourly spend in namespace {{ $labels.namespace }} exceeds threshold ($25/hr)"
+              - alert: IdleCpuResourceWaste
+                expr: sum(kubecost_cluster_memory_idle_bytes) / sum(kubecost_cluster_memory_total_bytes) > 0.40
+                for: 4h
+                labels:
+                  severity: info
+                  team: platform-finops
+                annotations:
+                  summary: "Cluster memory idle waste ratio is above 40% over 4 hours"

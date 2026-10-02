@@ -1,0 +1,75 @@
+apiVersion: policy.linkerd.io/v1beta1
+kind: Server
+metadata:
+  name: enterprise-api-mtls-server
+  namespace: production-apps
+  labels:
+    app.kubernetes.io/name: enterprise-api
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: enterprise-api
+  port: 8000
+  proxyProtocol: HTTP/1
+---
+apiVersion: policy.linkerd.io/v1alpha1
+kind: MeshTLSAuthentication
+metadata:
+  name: authorized-microservice-clients
+  namespace: production-apps
+spec:
+  identities:
+    - "celery-worker.production-apps.serviceaccount.identity.linkerd.cluster.local"
+    - "ingress-controller.ingress-system.serviceaccount.identity.linkerd.cluster.local"
+---
+apiVersion: policy.linkerd.io/v1beta1
+kind: ServerAuthorization
+metadata:
+  name: api-mtls-authz-policy
+  namespace: production-apps
+spec:
+  server:
+    name: enterprise-api-mtls-server
+  client:
+    meshTLS:
+      identities:
+        - "celery-worker.production-apps.serviceaccount.identity.linkerd.cluster.local"
+        - "ingress-controller.ingress-system.serviceaccount.identity.linkerd.cluster.local"
+---
+apiVersion: policy.linkerd.io/v1alpha1
+kind: NetworkAuthentication
+metadata:
+  name: internal-vpc-subnets
+  namespace: production-apps
+spec:
+  networks:
+    - cidr: 10.0.0.0/16
+---
+apiVersion: policy.linkerd.io/v1alpha2
+kind: HTTPRoute
+metadata:
+  name: enterprise-api-routes
+  namespace: production-apps
+spec:
+  parentRefs:
+    - name: enterprise-api-mtls-server
+      kind: Server
+      group: policy.linkerd.io
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /api/v1/health/
+      filters:
+        - type: RequestHeaderModifier
+          requestHeaderModifier:
+            add:
+              - name: x-linkerd-inspected
+                value: "true"
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /api/v1/
+      timeouts:
+        request: 10s
+        backendRequest: 8s
